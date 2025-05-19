@@ -1,7 +1,57 @@
+import { useState } from "react";
 import InputField from "./components/InputField";
 import Nav from "./components/InputField";
 
 function App() {
+  const [origin, setOrigin] = useState("");
+  const [destination, setDestination] = useState("");
+
+  const [transportMode, setTransportMode] = useState("driving");
+  const [distance, setDistance] = useState("");
+  const [duration, setDuration] = useState("");
+
+  const [filterType, setFilterType] = useState("restaurant");
+  const [places, setPlaces] = useState([]);
+
+  const [plan, setPlan] = useState({
+    title: "",
+    startDate: "",
+    endDate: "",
+    planOrigin: "",
+    planDestination: "",
+    notes: "",
+  });
+
+  const handlePlanChange = (field, value) => {
+    setPlan(prev => ({ ...prev, [field]: value }));
+  };
+
+  const fetchRouteInfo = async () => {
+    const response = await fetch(
+      `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&mode=${transportMode}&key=YOUR_API_KEY`
+    );
+    const data = await response.json();
+    if (data.routes.length > 0) {
+      const leg = data.routes[0].legs[0];
+      setDistance(leg.distance.text);
+      setDuration(leg.duration.text);
+    }
+  };
+
+  const fetchNearbyPlaces = async (lat, lng) => {
+    const response = await fetch(
+      `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=1500&type=${filterType}&key=YOUR_API_KEY`
+    );
+    const data = await response.json();
+    setPlaces(data.results);
+  };
+
+  const createCalendarEvent = async () => {
+    // use gapi.client.calendar.events.insert(...)
+  };
+
+
+
   return (
     <div className="flex flex-col font-inter px-12 py-8 gap-4 w-screen h-screen">
       {/* Title */}
@@ -11,19 +61,29 @@ function App() {
       {/* Search Bar */}
       <div className="flex flex-row gap-10">
         <div className="flex flex-col gap-4 justify-center w-1/2">
-          <InputField label="Nhập điểm đi" placeholder="Nhập vị trí muốn bắt đầu" />
-          <InputField label="Nhập điểm đến" placeholder="Nhập vị trí muốn đến" />
+          <InputField
+            label="Nhập điểm đi"
+            placeholder="Nhập vị trí muốn bắt đầu"
+            value={origin}
+            onChange={(e) => setOrigin(e.target.value)}
+          />
+          <InputField
+            label="Nhập điểm đến"
+            placeholder="Nhập vị trí muốn đến"
+            value={destination}
+            onChange={(e) => setDestination(e.target.value)}
+          />
+          <button
+            className="text-white bg-blue-600 px-4 py-2 rounded-md font-medium 
+            hover:bg-blue-500 transition-all cursor-pointer"
+            onClick={fetchRouteInfo}>
+            Tìm đường
+          </button>
         </div>
         <div className="flex flex-col justify-center gap-2">
-          <p>
-            Phương tiện:
-          </p>
-          <p>
-            Khoảng cách:
-          </p>
-          <p>
-            Thời gian:
-          </p>
+          <p>Phương tiện: {transportMode}</p>
+          <p>Khoảng cách: {distance}</p>
+          <p>Thời gian: {duration}</p>
         </div>
       </div>
       {/* Map And Recomend Places*/}
@@ -52,10 +112,11 @@ function App() {
               Danh sách địa điểm
             </h3>
             <ul className="flex flex-col gap-2 pl-2">
-              <li>- Phở 24 (cách 300m)</li>
-              <li>- Phở 24 (cách 300m)</li>
-              <li>- Phở 24 (cách 300m)</li>
-              <li>- Phở 24 (cách 300m)</li>
+              <ul className="flex flex-col gap-2 pl-2">
+                {places.map((place, idx) => (
+                  <li key={idx}>- {place.name} (cách {place.vicinity})</li>
+                ))}
+              </ul>
             </ul>
           </div>
           {/* Plan */}
