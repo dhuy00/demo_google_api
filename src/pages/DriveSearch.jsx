@@ -3,6 +3,9 @@ import {
   PieChart, Pie, Cell, Tooltip, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
 } from 'recharts';
+import { useContext } from 'react';
+import { UserContext } from '../context/UserContext';
+import { useNavigate } from 'react-router-dom';
 
 const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7f50', '#00c49f', '#ff6384'];
 
@@ -16,6 +19,9 @@ const fileTypes = [
 ];
 
 export default function DriveSearch() {
+  const navigate = useNavigate();
+  const { user } = useContext(UserContext);
+
   const [keyword, setKeyword] = useState('');
   const [fileType, setFileType] = useState('');
   const [results, setResults] = useState([]);
@@ -126,7 +132,7 @@ export default function DriveSearch() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6 bg-white shadow-xl rounded-2xl mt-10 space-y-8">
+    <div className="max-w-6xl mx-auto p-6 bg-white shadow-wrap rounded-2xl mt-24 space-y-8">
       <h1 className="text-3xl font-bold text-gray-800">🔍 Tìm kiếm & Thống kê file Google Drive</h1>
 
       {/* Form tìm kiếm */}
