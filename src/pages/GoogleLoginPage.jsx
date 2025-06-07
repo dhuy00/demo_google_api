@@ -8,7 +8,8 @@ export default function GoogleLoginPage() {
   const { user, setUser } = useContext(UserContext);
 
   const login = useGoogleLogin({
-    scope: 'https://www.googleapis.com/auth/calendar.events',
+    scope:
+      'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/spreadsheets https://mail.google.com/',
     onSuccess: async (tokenResponse) => {
       try {
         const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
@@ -25,13 +26,14 @@ export default function GoogleLoginPage() {
 
         setUser(userData);
         localStorage.setItem('user', JSON.stringify(userData));
-        navigate('/scheduler');
+        navigate('/scheduler'); // or DriveSearch if that’s the landing page
       } catch (error) {
         console.error('Failed to fetch user info:', error);
       }
     },
     onError: () => console.error('Google Login Failed'),
   });
+
 
   // Load user from localStorage if exists
   useEffect(() => {

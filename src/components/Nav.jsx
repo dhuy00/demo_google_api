@@ -22,7 +22,7 @@ const Nav = () => {
 
 
   return (
-    <div className='fixed top-0 flex justify-between px-8 w-full py-4 shadow-wrap'>
+    <div className='fixed top-0 flex justify-between px-8 w-full py-4 shadow-wrap bg-white z-[990]'>
       <span className='font-bold text-blue-500 text-lg'>Demo GoogleAPI</span>
       <ul className='flex gap-8 font-medium text-gray-500'>
         <li className={`${location.pathname === "/drive" ? "text-blue-500" : ''}`}>
@@ -38,6 +38,11 @@ const Nav = () => {
         <li className={`${location.pathname === "/receipt" ? "text-blue-500" : ''}`}>
           <a href='/receipt'>
             Google Vision API
+          </a>
+        </li>
+        <li className={`${location.pathname === "/mail" ? "text-blue-500" : ''}`}>
+          <a href='/mail'>
+            Google Mail API
           </a>
         </li>
       </ul>

@@ -1,22 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import {
-  PieChart, Pie, Cell, Tooltip, Legend,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
-} from 'recharts';
-import { useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import { UserContext } from '../context/UserContext';
 import { useNavigate } from 'react-router-dom';
-
-const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7f50', '#00c49f', '#ff6384'];
-
-const fileTypes = [
-  { label: 'Tất cả', value: '' },
-  { label: 'PDF', value: 'application/pdf' },
-  { label: 'Ảnh', value: 'image/' },
-  { label: 'Google Docs', value: 'application/vnd.google-apps.document' },
-  { label: 'Google Sheets', value: 'application/vnd.google-apps.spreadsheet' },
-  { label: 'Video', value: 'video/' },
-];
 
 export default function DriveSearch() {
   const navigate = useNavigate();
@@ -28,9 +12,40 @@ export default function DriveSearch() {
   const [loading, setLoading] = useState(false);
   const [previewFileId, setPreviewFileId] = useState(null);
 
-  // Thống kê dữ liệu cho biểu đồ
-  const [statsByType, setStatsByType] = useState([]);
-  const [sizeByType, setSizeByType] = useState([]);
+  const [folders, setFolders] = useState([]);
+  const [selectedFolderId, setSelectedFolderId] = useState('');
+
+  const fileInputRef = useRef(null);
+
+  const fileTypes = [
+    { label: 'Tất cả', value: '' },
+    { label: 'PDF', value: 'application/pdf' },
+    { label: 'Ảnh', value: 'image/' },
+    { label: 'Google Docs', value: 'application/vnd.google-apps.document' },
+    { label: 'Google Sheets', value: 'application/vnd.google-apps.spreadsheet' },
+    { label: 'Video', value: 'video/' },
+  ];
+
+  useEffect(() => {
+    const fetchFolders = async () => {
+      if (!user?.access_token) return;
+      try {
+        const res = await fetch(
+          `https://www.googleapis.com/drive/v3/files?q=mimeType='application/vnd.google-apps.folder'&fields=files(id,name)&pageSize=1000`,
+          {
+            headers: {
+              Authorization: `Bearer ${user.access_token}`,
+            },
+          }
+        );
+        const data = await res.json();
+        setFolders(data.files || []);
+      } catch (err) {
+        console.error('Lỗi tải thư mục:', err);
+      }
+    };
+    fetchFolders();
+  }, [user]);
 
   const getType = (mime) => {
     if (mime.startsWith('image/')) return 'Ảnh';
@@ -41,37 +56,6 @@ export default function DriveSearch() {
     return 'Khác';
   };
 
-  // Cập nhật thống kê mỗi khi results thay đổi
-  useEffect(() => {
-    const groupByType = {};
-    const sizeMap = {};
-
-    results.forEach((file) => {
-      const typeKey = getType(file.mimeType);
-
-      if (!groupByType[typeKey]) {
-        groupByType[typeKey] = 0;
-        sizeMap[typeKey] = 0;
-      }
-
-      groupByType[typeKey] += 1;
-      sizeMap[typeKey] += file.size || 0;
-    });
-
-    const typeData = Object.keys(groupByType).map((key) => ({
-      type: key,
-      count: groupByType[key],
-    }));
-
-    const sizeData = Object.keys(sizeMap).map((key) => ({
-      type: key,
-      sizeMB: +(sizeMap[key] / (1024 * 1024)).toFixed(2),
-    }));
-
-    setStatsByType(typeData);
-    setSizeByType(sizeData);
-  }, [results]);
-
   const formatSize = (bytes) => {
     if (!bytes) return '-';
     const kb = bytes / 1024;
@@ -79,71 +63,150 @@ export default function DriveSearch() {
   };
 
   const handleSearch = async () => {
+    if (!user?.access_token) return alert('Vui lòng đăng nhập.');
     setLoading(true);
 
     try {
-      // TODO: Thay bằng API thực, hiện dummy data tạm
-      const dummyResults = [
-        {
-          id: '1abc123',
-          name: 'Báo cáo tài chính.pdf',
-          mimeType: 'application/pdf',
-          size: 204800,
-          webViewLink: 'https://drive.google.com/file/d/1abc123/view',
-        },
-        {
-          id: '2xyz456',
-          name: 'Ảnh chụp màn hình.png',
-          mimeType: 'image/png',
-          size: 102400,
-          webViewLink: 'https://drive.google.com/file/d/2xyz456/view',
-        },
-        {
-          id: '3def789',
-          name: 'Kế hoạch Google Docs',
-          mimeType: 'application/vnd.google-apps.document',
-          size: 80000,
-          webViewLink: 'https://docs.google.com/document/d/3def789/edit',
-        },
-      ];
-
-      // Lọc theo từ khóa & loại file đơn giản
-      let filtered = dummyResults;
-      if (keyword.trim()) {
-        filtered = filtered.filter((f) =>
-          f.name.toLowerCase().includes(keyword.toLowerCase())
-        );
-      }
+      const query = [];
+      if (keyword.trim()) query.push(`name contains '${keyword.trim()}'`);
       if (fileType) {
-        filtered = filtered.filter((f) =>
-          fileType.endsWith('/') // ví dụ 'image/' để filter ảnh
-            ? f.mimeType.startsWith(fileType)
-            : f.mimeType === fileType
-        );
+        if (fileType.endsWith('/')) {
+          query.push(`mimeType contains '${fileType}'`);
+        } else {
+          query.push(`mimeType = '${fileType}'`);
+        }
+      }
+      if (selectedFolderId) {
+        query.push(`'${selectedFolderId}' in parents`);
       }
 
-      setResults(filtered);
+      const qString = query.join(' and ');
+
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qString)}&pageSize=100&fields=files(id,name,mimeType,size,webViewLink)`,
+        {
+          headers: {
+            Authorization: `Bearer ${user.access_token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+      setResults(data.files || []);
     } catch (err) {
-      console.error('Lỗi tìm kiếm:', err);
+      console.error('Lỗi truy vấn Drive API:', err);
       setResults([]);
     }
 
     setLoading(false);
   };
 
-  return (
-    <div className="max-w-6xl mx-auto p-6 bg-white shadow-wrap rounded-2xl mt-24 space-y-8">
-      <h1 className="text-3xl font-bold text-gray-800">🔍 Tìm kiếm & Thống kê file Google Drive</h1>
+  const handleUploadFile = async (file) => {
+    if (!file || !selectedFolderId || !user?.access_token) {
+      return alert('Vui lòng chọn file và thư mục!');
+    }
 
-      {/* Form tìm kiếm */}
-      <div className="flex gap-4 flex-wrap">
+    const metadata = {
+      name: file.name,
+      parents: [selectedFolderId],
+    };
+
+    const form = new FormData();
+    form.append(
+      'metadata',
+      new Blob([JSON.stringify(metadata)], { type: 'application/json' })
+    );
+    form.append('file', file);
+
+    try {
+      setLoading(true);
+      const uploadRes = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${user.access_token}`,
+          },
+          body: form,
+        }
+      );
+      const uploadData = await uploadRes.json();
+      console.log('Upload thành công:', uploadData);
+      alert('Upload thành công!');
+      handleSearch(); // Refresh sau khi upload
+    } catch (err) {
+      console.error('Lỗi upload:', err);
+      alert('Lỗi upload file.');
+    } finally {
+      setLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Hàm xóa file
+  const handleDeleteFile = async (fileId, fileName) => {
+    if (!user?.access_token) return alert('Vui lòng đăng nhập.');
+    const confirmDelete = window.confirm(`Bạn có chắc muốn xóa file "${fileName}"?`);
+    if (!confirmDelete) return;
+
+    try {
+      setLoading(true);
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${user.access_token}`,
+          },
+        }
+      );
+
+      if (response.status === 204) {
+        alert('Xóa file thành công!');
+        // Refresh danh sách
+        handleSearch();
+      } else {
+        const error = await response.json();
+        console.error('Lỗi khi xóa file:', error);
+        alert('Không thể xóa file.');
+      }
+    } catch (err) {
+      console.error('Lỗi xóa file:', err);
+      alert('Lỗi khi xóa file.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto p-8 bg-white shadow-wrap rounded-3xl mt-24 space-y-8">
+      <h1 className="text-3xl font-bold text-gray-800 mb-4">
+        Google Drive API
+      </h1>
+
+      {/* Thanh công cụ */}
+      <div className="flex flex-wrap gap-4 items-center border p-4 rounded-xl bg-gray-50">
+        <select
+          className="p-2 border rounded min-w-[200px]"
+          value={selectedFolderId}
+          onChange={(e) => setSelectedFolderId(e.target.value)}
+        >
+          <option value="">Tất cả thư mục</option>
+          {folders.map((folder) => (
+            <option key={folder.id} value={folder.id}>
+              📁 {folder.name}
+            </option>
+          ))}
+        </select>
+
         <input
           type="text"
-          placeholder="Từ khóa tìm kiếm..."
-          className="flex-1 p-2 border rounded"
+          placeholder="Tìm kiếm"
+          className="p-2 border rounded flex-1 min-w-[150px]"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
         />
+
         <select
           className="p-2 border rounded"
           value={fileType}
@@ -155,106 +218,75 @@ export default function DriveSearch() {
             </option>
           ))}
         </select>
+
         <button
           onClick={handleSearch}
           className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 transition"
         >
           {loading ? 'Đang tìm...' : 'Tìm kiếm'}
         </button>
+
+        <label className="bg-green-600 text-white px-5 py-2 rounded cursor-pointer hover:bg-green-700 transition">
+          Thêm file
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            onChange={(e) => handleUploadFile(e.target.files[0])}
+          />
+        </label>
       </div>
 
-      {/* Kết quả tìm kiếm */}
+      {/* Danh sách file */}
       {results.length > 0 ? (
-        <>
-          <table className="w-full mt-6 table-auto border text-sm rounded-md overflow-hidden">
-            <thead className="bg-gray-100 text-left">
-              <tr>
-                <th className="p-3 border">Tên file</th>
-                <th className="p-3 border">Loại MIME</th>
-                <th className="p-3 border">Dung lượng</th>
-                <th className="p-3 border">Hành động</th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.map((file) => (
-                <tr key={file.id} className="border-t hover:bg-gray-50">
-                  <td className="p-3 border">{file.name}</td>
-                  <td className="p-3 border text-gray-600">{file.mimeType}</td>
-                  <td className="p-3 border">{formatSize(file.size)}</td>
-                  <td className="p-3 border flex gap-4">
-                    <a
-                      href={file.webViewLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline"
-                    >
-                      Xem file
-                    </a>
-                    <button
-                      onClick={() => setPreviewFileId(file.id)}
-                      className="text-gray-700 underline hover:text-blue-500"
-                    >
-                      Xem trước
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Biểu đồ thống kê */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-10">
-            {/* Pie Chart số lượng */}
-            <div className="bg-gray-50 p-4 rounded-xl shadow">
-              <h3 className="text-lg font-semibold mb-4 text-center">
-                Số lượng file theo loại
-              </h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={statsByType}
-                    dataKey="count"
-                    nameKey="type"
-                    outerRadius={100}
-                    label
+        <table className="w-full mt-4 table-auto border text-sm rounded-md overflow-hidden">
+          <thead className="bg-gray-100 text-left">
+            <tr>
+              <th className="p-3 border">Tên file</th>
+              <th className="p-3 border">Loại</th>
+              <th className="p-3 border">Dung lượng</th>
+              <th className="p-3 border">Hành động</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results.map((file) => (
+              <tr key={file.id} className="border-t hover:bg-gray-50">
+                <td className="p-3 border">{file.name}</td>
+                <td className="p-3 border text-gray-600">{getType(file.mimeType)}</td>
+                <td className="p-3 border">{formatSize(file.size)}</td>
+                <td className="p-3 border flex gap-3">
+                  <a
+                    href={file.webViewLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded-md"
                   >
-                    {statsByType.map((_, index) => (
-                      <Cell
-                        key={index}
-                        fill={COLORS[index % COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend layout="horizontal" align="center" verticalAlign="bottom" />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Bar Chart dung lượng */}
-            <div className="bg-gray-50 p-4 rounded-xl shadow">
-              <h3 className="text-lg font-semibold mb-4 text-center">
-                Dung lượng theo loại (MB)
-              </h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={sizeByType}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="type" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="sizeMB" fill="#8884d8" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </>
+                    Xem file
+                  </a>
+                  <button
+                    onClick={() => setPreviewFileId(file.id)}
+                    className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded-md"
+                  >
+                    Xem trước
+                  </button>
+                  <button
+                    onClick={() => handleDeleteFile(file.id, file.name)}
+                    className="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded-md"
+                  >
+                    Xóa
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       ) : (
-        <div className="text-center text-gray-500 pt-6">
+        <div className="text-center text-gray-500 pt-6 text-lg font-medium">
           {loading ? 'Đang tìm kiếm...' : 'Chưa có kết quả nào.'}
         </div>
       )}
 
-      {/* Modal xem trước file */}
+      {/* Modal xem trước */}
       {previewFileId && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-4 w-[90%] h-[90%] relative shadow-2xl">

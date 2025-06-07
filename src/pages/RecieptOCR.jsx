@@ -1,8 +1,8 @@
 import React, { useContext, useState } from 'react';
-import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserContext } from '../context/UserContext';
 
+const API_KEY = process.env.REACT_APP_GOOGLE_VISION_API_KEY;
 
 export default function ReceiptOCR() {
   const navigate = useNavigate();
@@ -10,18 +10,15 @@ export default function ReceiptOCR() {
 
   const [image, setImage] = useState(null);
   const [text, setText] = useState('');
-  const [extracted, setExtracted] = useState({
-    store: '',
-    date: '',
-    total: ''
-  });
-
   const [useMock, setUseMock] = useState(true);
+
+  // Thêm state để người dùng nhập Sheet ID và Sheet Name
+  const [sheetId, setSheetId] = useState('');
+  const [sheetName, setSheetName] = useState('');
 
   const handleImageChange = (e) => {
     setImage(e.target.files[0]);
     setText('');
-    setExtracted({ store: '', date: '', total: '' });
   };
 
   const handleOCR = async () => {
@@ -29,14 +26,13 @@ export default function ReceiptOCR() {
 
     if (useMock) {
       const mockText = `
-        Coffee House
-        2024-12-01 10:30 AM
-        Latte: 40,000
-        Sandwich: 60,000
-        Tổng: 100,000 VND
-      `;
+      Coffee House
+      2024-12-01 10:30 AM
+      Latte: 40,000
+      Sandwich: 60,000
+      Tổng: 100,000 VND
+    `;
       setText(mockText);
-      parseData(mockText);
       return;
     }
 
@@ -44,52 +40,100 @@ export default function ReceiptOCR() {
     reader.onloadend = async () => {
       const base64 = reader.result.replace(/^data:image\/(png|jpeg);base64,/, '');
 
-      const response = await fetch(
-        'https://vision.googleapis.com/v1/images:annotate?key=YOUR_API_KEY',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            requests: [
-              {
-                image: { content: base64 },
-                features: [{ type: 'TEXT_DETECTION' }]
-              }
-            ]
-          }),
-          headers: {
-            'Content-Type': 'application/json'
+      try {
+        const response = await fetch(
+          `https://vision.googleapis.com/v1/images:annotate?key=${API_KEY}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              requests: [
+                {
+                  image: { content: base64 },
+                  features: [{ type: 'TEXT_DETECTION' }],
+                },
+              ],
+            }),
           }
-        }
-      );
+        );
 
-      const result = await response.json();
-      const fullText = result.responses?.[0]?.fullTextAnnotation?.text || '';
-      setText(fullText);
-      parseData(fullText);
+        const result = await response.json();
+
+        const fullText = result.responses?.[0]?.fullTextAnnotation?.text || '';
+        if (!fullText) {
+          alert('Không thể trích xuất văn bản từ ảnh.');
+          return;
+        }
+
+        setText(fullText);
+      } catch (error) {
+        console.error('OCR error:', error);
+        alert('Lỗi khi gọi Google Vision API.');
+      }
     };
 
     reader.readAsDataURL(image);
   };
 
-  const parseData = (text) => {
-    const lines = text.split('\n');
-    let store = lines[0];
-    let date = lines.find((line) =>
-      /\d{2,4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}/.test(line)
-    );
-    let totalLine = lines.find((line) => /Tổng|Total/i.test(line));
+  const handleSaveToSheet = async () => {
+    if (!user?.access_token) {
+      alert('Bạn cần đăng nhập trước.');
+      return;
+    }
 
-    let total = totalLine ? totalLine.match(/(\d+[.,]?\d*)/g)?.[0] : '';
+    if (!text) {
+      alert('Chưa có kết quả OCR để lưu.');
+      return;
+    }
 
-    setExtracted({
-      store: store || '',
-      date: date || '',
-      total: total || ''
-    });
+    if (!sheetId.trim()) {
+      alert('Vui lòng nhập Google Sheet ID.');
+      return;
+    }
+
+    if (!sheetName.trim()) {
+      alert('Vui lòng nhập tên Sheet (ví dụ: Sheet1).');
+      return;
+    }
+
+    const spreadsheetId = sheetId.trim();
+    const range = `${sheetName.trim()}!A1`;
+
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`;
+
+    const body = {
+      values: [[new Date().toLocaleString(), text]],
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user.access_token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Failed to append to sheet:', error);
+        alert('Lỗi khi lưu vào Google Sheet. Vui lòng kiểm tra lại Sheet ID và tên Sheet.');
+        return;
+      }
+
+      await response.json();
+      alert('Đã lưu vào Google Sheet!');
+    } catch (error) {
+      console.error('Error saving to Sheet:', error);
+      alert('Lỗi khi lưu vào Google Sheet.');
+    }
   };
 
   return (
-    <div className="max-w-xl mx-auto mt-10 p-6 bg-white rounded-xl shadow space-y-4">
+    <div className="max-w-xl mx-auto mt-24 p-6 bg-white rounded-xl shadow-wrap space-y-4">
       <h1 className="text-2xl font-bold text-gray-800">OCR Hóa Đơn</h1>
 
       <label className="flex items-center gap-2 text-sm text-gray-600">
@@ -118,19 +162,36 @@ export default function ReceiptOCR() {
       </button>
 
       {text && (
-        <div className="bg-gray-50 p-4 rounded border text-sm whitespace-pre-wrap">
-          <h2 className="font-semibold mb-2 text-gray-700">Kết quả OCR:</h2>
-          {text}
-        </div>
-      )}
+        <>
+          <div className="bg-gray-50 p-4 rounded border text-sm whitespace-pre-wrap">
+            <h2 className="font-semibold mb-2 text-gray-700">Kết quả OCR:</h2>
+            {text}
+          </div>
 
-      {(extracted.store || extracted.date || extracted.total) && (
-        <div className="bg-yellow-50 p-4 rounded border">
-          <h2 className="font-semibold mb-2 text-yellow-800">Dữ liệu trích xuất:</h2>
-          <p><strong>Tên cửa hàng:</strong> {extracted.store}</p>
-          <p><strong>Ngày giờ:</strong> {extracted.date}</p>
-          <p><strong>Tổng tiền:</strong> {extracted.total}</p>
-        </div>
+          <div className="space-y-4 mt-4">
+            <input
+              type="text"
+              placeholder="Nhập Google Sheet ID"
+              value={sheetId}
+              onChange={(e) => setSheetId(e.target.value)}
+              className="w-full px-3 py-2 border rounded"
+            />
+            <input
+              type="text"
+              placeholder="Nhập tên Sheet (ví dụ: Sheet1)"
+              value={sheetName}
+              onChange={(e) => setSheetName(e.target.value)}
+              className="w-full px-3 py-2 border rounded"
+            />
+
+            <button
+              className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition"
+              onClick={handleSaveToSheet}
+            >
+              Lưu vào Google Sheet
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
